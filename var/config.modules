@@ -1,0 +1,4 @@
+# Configuration fragment providing a kernel module for the `modules`
+# input to install. `dummy` is about as small and dependency free as
+# loadable modules get.
+CONFIG_DUMMY=m

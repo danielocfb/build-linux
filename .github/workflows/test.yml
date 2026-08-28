@@ -1,0 +1,87 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Defaults: a bzImage and nothing else.
+          - name: minimal
+            vmlinux: 'false'
+            modules: 'false'
+            patches: ''
+            fragments: ''
+          - name: vmlinux
+            vmlinux: 'true'
+            modules: 'false'
+            patches: ''
+            fragments: ''
+          - name: modules
+            vmlinux: 'true'
+            modules: 'true'
+            patches: ''
+            fragments: var/config.modules
+          - name: patches
+            vmlinux: 'true'
+            modules: 'false'
+            patches: var/patches/*.patch
+            fragments: ''
+    steps:
+      - uses: actions/checkout@v6
+      - name: Assemble kernel configuration
+        run: cat var/config.base ${{ matrix.fragments }} > var/config
+      - uses: ./
+        id: build
+        with:
+          # Pin the kernel, so that runs are reproducible and can share
+          # caches.
+          rev: v7.1
+          config: var/config
+          vmlinux: ${{ matrix.vmlinux }}
+          modules: ${{ matrix.modules }}
+          patches: ${{ matrix.patches }}
+      - name: Verify build artifacts
+        env:
+          BUILD_DIR: ${{ steps.build.outputs.build-dir }}
+          VMLINUX: ${{ matrix.vmlinux }}
+          MODULES: ${{ matrix.modules }}
+          PATCHES: ${{ matrix.patches != '' }}
+        run: var/verify.sh
+      # vmsh boots an ELF vmlinux, so this only applies to configurations
+      # that produce one.
+      - if: matrix.vmlinux == 'true'
+        uses: d-e-s-o/vmsh@05cc646c9a151878d3b511c07df2e13c0a63ba77
+      - if: matrix.vmlinux == 'true'
+        name: Boot kernel
+        timeout-minutes: 10
+        env:
+          BUILD_DIR: ${{ steps.build.outputs.build-dir }}
+        run: |
+          vmlinux=$(echo "${BUILD_DIR}"/boot/vmlinux-*)
+          release=$(basename "${vmlinux}")
+          release=${release#vmlinux-}
+
+          if [ -n "${{ matrix.patches }}" ]; then
+            # var/patches/0001-* adds a localversion file, which kbuild
+            # folds into the release string.
+            case "${release}" in
+              *-patched*) ;;
+              *) echo "::error::release '${release}' lacks the patch marker"; exit 1 ;;
+            esac
+          fi
+
+          vmsh --cpus="$(nproc)" --memory=2048 --kernel "${vmlinux}" \
+            --env=HOME --env=PATH \
+            -- sh -c "cd '${GITHUB_WORKSPACE}' && var/smoke.sh '${BUILD_DIR}' '${release}' '${{ matrix.modules }}'"

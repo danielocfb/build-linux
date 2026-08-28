@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: build-linux CI <ci@localhost>
+Date: Sat, 1 Jan 2000 00:00:01 +0000
+Subject: [PATCH 2/2] Add marker file
+
+Add a file to the kernel source tree so that tests can verify that
+multiple patches are applied, in order.
+---
+ build-linux-marker | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 build-linux-marker
+
+diff --git a/build-linux-marker b/build-linux-marker
+new file mode 100644
+index 000000..347f76
+--- /dev/null
++++ b/build-linux-marker
+@@ -0,0 +1 @@
++patch marker
