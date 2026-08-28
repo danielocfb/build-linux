@@ -47,11 +47,32 @@ runs:
         fi
         echo "targets=${targets}" >> $GITHUB_OUTPUT
 
+        # Resolve the revision into a SHA-1, which identifies the source
+        # tree unambiguously and, by extension, makes the repository it
+        # was retrieved from irrelevant for caching purposes.
+        rev="${{ inputs.rev }}"
+        if [ -z "${rev}" ]; then
+          rev="HEAD"
+        fi
+        # NB: Annotated tags resolve to the tag object, with the peeled
+        #     commit being reported separately and last.
+        sha=$(git ls-remote "${{ github.server_url }}/${{ inputs.kernel-repo }}" "${rev}" "${rev}^{}" | tail -n1 | cut -f1)
+        if [ -z "${sha}" ]; then
+          if [ ${#rev} -eq 40 ] && [ -z "${rev//[0-9a-f]/}" ]; then
+            # Not a ref, but a full SHA-1 to begin with.
+            sha="${rev}"
+          else
+            echo "::error::Failed to resolve revision '${rev}'"
+            exit 1
+          fi
+        fi
+        echo "rev=${sha}" >> $GITHUB_OUTPUT
+
         # NB: For the action itself hashFiles() is not usable, as it
         #     only covers files inside GITHUB_WORKSPACE, whereas the
         #     action resides in a sibling directory.
         action_hash=$(sha256sum "${{ github.action_path }}/action.yml" | cut -d' ' -f1)
-        inputs_hash=$(echo "${action_hash} ${{ inputs.kernel-repo }} ${{ hashFiles(inputs.config) }} ${{ inputs.rev }} ${{ hashFiles(inputs.patches) }} ${{ inputs.vmlinux }} ${{ inputs.modules }}" | sha256sum | cut -d' ' -f1)
+        inputs_hash=$(echo "${action_hash} ${sha} ${{ hashFiles(inputs.config) }} ${{ hashFiles(inputs.patches) }} ${{ inputs.vmlinux }} ${{ inputs.modules }}" | sha256sum | cut -d' ' -f1)
         echo "inputs-hash=${inputs_hash}" >> $GITHUB_OUTPUT
     - uses: actions/cache/restore@v5
       id: restore-cached-kernel
@@ -62,7 +83,7 @@ runs:
       uses: actions/checkout@v6
       with:
         repository: ${{ inputs.kernel-repo }}
-        ref: ${{ inputs.rev }}
+        ref: ${{ steps.configure.outputs.rev }}
         fetch-depth: 1
         path: linux/
     - if: steps.restore-cached-kernel.outputs.cache-hit != 'true'
