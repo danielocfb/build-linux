@@ -54,17 +54,26 @@ runs:
         if [ -z "${rev}" ]; then
           rev="HEAD"
         fi
-        # NB: Annotated tags resolve to the tag object, with the peeled
-        #     commit being reported separately and last.
-        sha=$(git ls-remote "${{ github.server_url }}/${{ inputs.kernel-repo }}" "${rev}" "${rev}^{}" | tail -n1 | cut -f1)
-        if [ -z "${sha}" ]; then
-          if [ ${#rev} -eq 40 ] && [ -z "${rev//[0-9a-f]/}" ]; then
-            # Not a ref, but a full SHA-1 to begin with.
-            sha="${rev}"
-          else
-            echo "::error::Failed to resolve revision '${rev}'"
+        refs=$(git ls-remote "${{ github.server_url }}/${{ inputs.kernel-repo }}" "${rev}" "${rev}^{}")
+        if [ -n "${refs}" ]; then
+          # NB: Patterns are matched against the tail of reference names,
+          #     so more than a single reference may be reported. Peeled
+          #     entries belong to the reference preceding them and so do
+          #     not constitute a match of their own.
+          names=$(cut -f2 <<< "${refs}" | sed 's/\^{}$//' | sort -u)
+          if [ "$(wc -l <<< "${names}")" -ne 1 ]; then
+            echo "::error::Revision '${rev}' is ambiguous: $(paste -sd' ' <<< "${names}")"
             exit 1
           fi
+          # NB: Annotated tags resolve to the tag object, with the peeled
+          #     commit being reported separately and last.
+          sha=$(tail -n1 <<< "${refs}" | cut -f1)
+        elif [ ${#rev} -eq 40 ] && [ -z "${rev//[0-9a-f]/}" ]; then
+          # Not a ref, but a full SHA-1 to begin with.
+          sha="${rev}"
+        else
+          echo "::error::Failed to resolve revision '${rev}'"
+          exit 1
         fi
         echo "rev=${sha}" >> $GITHUB_OUTPUT
 
